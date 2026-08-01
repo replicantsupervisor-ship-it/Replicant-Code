@@ -1,0 +1,81 @@
+From f1f39ac2fd26f417c153c006c72b037b7f90a4df Mon Sep 17 00:00:00 2001
+From: Eve Replicant <evereplicant2d53691e@web-library.net>
+Date: Sat, 1 Aug 2026 18:21:16 +0000
+Subject: [PATCH] test: add malformed TLV length vector
+
+---
+ tests/vectors/README.md                      |  2 +-
+ tests/vectors/invalid/tlv-length-overrun.hex |  1 +
+ tools/check_test_vector.py                   | 27 ++++++++++++++++++++
+ 3 files changed, 29 insertions(+), 1 deletion(-)
+ create mode 100644 tests/vectors/invalid/tlv-length-overrun.hex
+
+diff --git a/tests/vectors/README.md b/tests/vectors/README.md
+index 430b6a8..cda7ace 100644
+--- a/tests/vectors/README.md
++++ b/tests/vectors/README.md
+@@ -2,6 +2,6 @@
+ 
+ `lep-v1-basic.hex` is a canonical 34-byte LEP v1 envelope. It contains sequence 7, event ID 9 and one TLV with type 1 and bytes `aa bb`. Both the C and Rust decoders use the same layout and `tools/check_test_vector.py` independently verifies its lengths and CRCs.
+ 
+-`invalid/` holds negative golden vectors (bad magic/CRC/flags/version/TLV). `tools/check_test_vector.py` asserts they fail plain validation.
++`invalid/` holds negative golden vectors with stable public decoder-error categories. `tools/check_test_vector.py` asserts they fail plain validation with the expected category: `magic`, `version`, `flags`, `header_crc`, `payload_crc`, or `corrupt: tlv`. The `tlv-length-overrun.hex` fixture is a well-formed LEP v1 header and payload CRC whose sole malformed condition is a TLV length that extends one byte past the payload boundary; decoders must report it as `corrupt: tlv`.
+ 
+ Existing vectors are immutable compatibility fixtures. A breaking wire-format change requires a new protocol version and a new file rather than rewriting an old vector.
+diff --git a/tests/vectors/invalid/tlv-length-overrun.hex b/tests/vectors/invalid/tlv-length-overrun.hex
+new file mode 100644
+index 0000000..e38b976
+--- /dev/null
++++ b/tests/vectors/invalid/tlv-length-overrun.hex
+@@ -0,0 +1 @@
++4c5354500102000007000000090000000600000074ddc48901000300aabb8fe37060
+diff --git a/tools/check_test_vector.py b/tools/check_test_vector.py
+index ea27884..e42d280 100644
+--- a/tools/check_test_vector.py
++++ b/tools/check_test_vector.py
+@@ -76,15 +76,42 @@ def main() -> int:
+     invalid_dir = vectors / "invalid"
+     if invalid_dir.is_dir():
+         failed_as_expected = 0
++        expected_errors = {
++            "bad-header-crc.hex": "header_crc",
++            "bad-magic.hex": "magic",
++            "bad-payload-crc.hex": "payload_crc",
++            "tlv-length-overrun.hex": "corrupt: tlv",
++            "tlv-type-zero.hex": "corrupt: tlv",
++            "unknown-flags.hex": "flags",
++            "unsupported-version.hex": "version",
++        }
+         for path in sorted(invalid_dir.glob("*.hex")):
+             data = load_hex(path)
+             try:
+                 validate_plain(data)
++            except ValueError as exc:
++                actual = str(exc)
++                expected = expected_errors.get(path.name)
++                if expected is not None and actual != expected:
++                    print(
++                        f"FAIL {path.name}: expected {expected!r}, got {actual!r}",
++                        file=sys.stderr,
++                    )
++                    return 1
++                failed_as_expected += 1
++                continue
+             except Exception:
++                if path.name in expected_errors:
++                    print(f"FAIL {path.name}: expected a public ValueError category", file=sys.stderr)
++                    return 1
+                 failed_as_expected += 1
+                 continue
+             print(f"FAIL {path.name}: expected invalid, validated as plain LEP", file=sys.stderr)
+             return 1
++        missing = sorted(set(expected_errors) - {path.name for path in invalid_dir.glob("*.hex")})
++        if missing:
++            print(f"FAIL missing invalid vectors: {', '.join(missing)}", file=sys.stderr)
++            return 1
+         print(f"LEP public test vector passed; {failed_as_expected} invalid vectors rejected")
+     else:
+         print("LEP public test vector passed")
+-- 
+2.39.5
+

@@ -1,0 +1,5 @@
+f1f39ac test: add malformed TLV length vector
+ tests/vectors/README.md                      |  2 +-
+ tests/vectors/invalid/tlv-length-overrun.hex |  1 +
+ tools/check_test_vector.py                   | 27 +++++++++++++++++++++++++++
+ 3 files changed, 29 insertions(+), 1 deletion(-)
